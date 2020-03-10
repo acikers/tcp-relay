@@ -4,17 +4,25 @@
 #include <time.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <sys/socket.h>
 
 #define MAX_SOCKLEN 1024
 #define MSG_LEN 1024
 
+struct packet_data {
+	uint8_t num;
+	struct timespec ts;
+};
+
 int create_output_sock(struct sockaddr *, char *);
 int create_input_sock(struct sockaddr *, char *);
 
-char *find_place_for_ts(char*, size_t);			// Return address with empty place
-char *find_last_ts(char *, size_t);			// Return address where struct timeval begin
-int fill_next_ts(char*);
+struct packet_data *find_place_for_data(struct packet_data *);		// Return address with empty place
+struct packet_data *find_last_data(struct packet_data *);		// Return address where struct timeval begin
+struct packet_data *find_next_data(struct packet_data *);		// Return address of next data in package
+int fill_next_ts(struct packet_data *);
+
 
 
 int main(int argc, char *argv[]) { 
@@ -24,7 +32,6 @@ int main(int argc, char *argv[]) {
 	char *si_name = NULL, *so_name = NULL;
 	struct sockaddr addr_out, addr_in;
 	fd_set rfds;
-	struct timeval tv;
 
 	int opt;
 	while ((opt = getopt(argc, argv, "i:o:")) != -1) {
@@ -51,7 +58,7 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 
-	char *buf = NULL;	// buffer for package
+	struct packet_data *buf = NULL;	// buffer for package
 	if (so_name != NULL) {
 		so = create_output_sock(&addr_out, so_name);
 		if (so == -1) {
@@ -77,7 +84,7 @@ int main(int argc, char *argv[]) {
 	// Receive package and send new ts
 	if (si_name != NULL) {
 		if (buf == NULL) {
-			buf = (char *)malloc(MSG_LEN);
+			buf = (struct packet_data *)malloc(MSG_LEN);
 			bzero(buf, MSG_LEN);
 		}
 		if (recv(si, buf, MSG_LEN, 0) != MSG_LEN) {
@@ -86,21 +93,10 @@ int main(int argc, char *argv[]) {
 			close(si);
 			return -1;
 		}
-		struct timespec ts_start, ts_end;
-		memcpy(&ts_start, find_last_ts(buf, sizeof(struct timespec)), sizeof(struct timespec));
-		printf("t: %ld\n", ts_start.tv_sec);
-		printf("time: %s\n", ctime(&ts_start.tv_sec));
-		printf("nanosecs: %ld\n", ts_start.tv_nsec);
-		clock_gettime(CLOCK_MONOTONIC, &ts_end);
-		printf("et: %ld\n", ts_end.tv_sec);
-		printf("etime: %s\n", ctime(&ts_end.tv_sec));
-		printf("enanosecs: %ld\n", ts_end.tv_nsec);
-		printf("diff: %lf\n", difftime(ts_end.tv_sec, ts_start.tv_sec));
-		printf("diff_nanos: %ld\n", ts_end.tv_nsec - ts_start.tv_nsec);
 	}
 	if (so_name != NULL) {
 		if (buf == NULL) {
-			buf = (char *) malloc(MSG_LEN);
+			buf = (struct packet_data *) malloc(MSG_LEN);
 			bzero(buf, MSG_LEN);
 		}
 		if (fill_next_ts(buf) == -1) {
@@ -111,6 +107,20 @@ int main(int argc, char *argv[]) {
 		}
 
 		send(so_accepted, buf, MSG_LEN, 0);
+	} else  if (si_name != NULL){
+		struct timespec ts_start, ts_end;
+		memcpy(&ts_start, &(find_last_data(buf)->ts), sizeof(struct timespec));
+
+
+		printf("t: %ld\n", ts_start.tv_sec);
+		printf("time: %s", ctime(&ts_start.tv_sec));
+		printf("nanosecs: %ld\n", ts_start.tv_nsec);
+		clock_gettime(CLOCK_MONOTONIC, &ts_end);
+		printf("et: %ld\n", ts_end.tv_sec);
+		printf("etime: %s\n", ctime(&ts_end.tv_sec));
+		printf("enanosecs: %ld\n", ts_end.tv_nsec);
+		printf("diff: %lf\n", difftime(ts_end.tv_sec, ts_start.tv_sec));
+		printf("diff_nanos: %ld\n", ts_end.tv_nsec - ts_start.tv_nsec);
 	}
 
 	if (si_name) free(si_name);
@@ -124,31 +134,36 @@ int main(int argc, char *argv[]) {
 }
 
 
-int fill_next_ts(char *packet) {
-	char *pos = find_place_for_ts(packet, sizeof(struct timespec));
-	if (pos == NULL) {
+int fill_next_ts(struct packet_data *packet) {
+	struct packet_data *n_data = find_place_for_data(packet);
+	if (n_data == NULL) {
 		errno = EFAULT;
 		return -1;
 	}
-	struct timespec ts;
-	if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1) {
+	if (clock_gettime(CLOCK_MONOTONIC, &(n_data->ts)) == -1) {
 		return -1;
 	}
-	*pos = 1;
-	memcpy(pos+1, &ts, sizeof(ts));
+	n_data->num = 1;
 
 	return 0;
 }
 
-inline char *find_last_ts(char *packet, size_t size_of_entry) {
-	char *ret = NULL;
-	for (ret = packet; ret != NULL && *(ret+size_of_entry+1) != 0; ret += size_of_entry+1) {}
-	return ret+1;
+inline struct packet_data *find_next_data(struct packet_data *packet) {
+	if (packet == NULL) {
+		return NULL;
+	}
+	return packet++;
 }
 
-inline char *find_place_for_ts(char *packet, size_t size_of_entry) {
-	char *ret = NULL;
-	for (ret = packet; ret != NULL && *ret != 0; ret += size_of_entry+1) {}
+inline struct packet_data *find_last_data(struct packet_data *packet) {
+	struct packet_data *ret = NULL;
+	for (ret = packet; ret != NULL && (ret+sizeof(struct packet_data))->num != 0; ret++) {}
+	return ret++;
+}
+
+inline struct packet_data *find_place_for_data(struct packet_data *packet) {
+	struct packet_data *ret = NULL;
+	for (ret = packet; ret != NULL && (ret+sizeof(struct packet_data))->num != 0; ret ++) {}
 	return ret;
 }
 
