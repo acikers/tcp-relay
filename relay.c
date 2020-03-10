@@ -97,7 +97,7 @@ int main(int argc, char *argv[]) {
 	if (out_port) send(so_accepted, &count, sizeof(count), 0);
 
 	struct timespec freq_ts;
-	while (count--) {
+	for (uint8_t cur_count = 0; cur_count < count; cur_count++) {
 		// Receive package and send new ts
 		if (in_port) {
 			if (buf == NULL) {
@@ -128,9 +128,9 @@ int main(int argc, char *argv[]) {
 			struct timespec ts = {0};
 			clock_gettime(CLOCK_MONOTONIC, &ts);
 			for (pos = 0; pd[pos].num != 0; pos++) {
-				printf("%d, %d, %ld, %ld\n", count, pos, pd[pos].ts.tv_sec, pd[pos].ts.tv_nsec);
+				printf("%" PRIu16 ", %" PRIu8 ", %ld, %ld\n", cur_count, pos, pd[pos].ts.tv_sec, pd[pos].ts.tv_nsec);
 			}
-			printf("%d, %d, %ld, %ld\n", count, pos, ts.tv_sec, ts.tv_nsec);
+			printf("%" PRIu16 ", %" PRIu8 ", %ld, %ld\n", cur_count, pos, ts.tv_sec, ts.tv_nsec);
 
 		}
 		bzero(buf, MSG_LEN);

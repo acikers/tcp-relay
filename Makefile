@@ -10,9 +10,9 @@ clean:
 
 .PHONY:test
 test: relay
-	./relay -c 50 -f 100 -o 55551 &
-	./relay -i 55551 -o 55552 &
-	./relay -i 55552 -o 55553 &
-	./relay -i 55553 -o 55554 &
-	./relay -i 55554 -o 55555 &
-	./relay -i 55555
+	./relay -c 50 -f 100 -o 11111 &
+	./relay -i 11111 -o 11112 &
+	./relay -i 11112 -o 11113 &
+	./relay -i 11113 -o 11114 &
+	./relay -i 11114 -o 11115 &
+	./relay -i 11115
