@@ -21,17 +21,18 @@ int create_input_sock(struct sockaddr *, char *);
 int fill_next_packet(struct packet_data *);
 
 
-
 int main(int argc, char *argv[]) { 
 	int so, si, so_accepted = 0;
 	int retval;
 	int so_insize = 0;
+	uint8_t frequency = 100;
+	uint16_t count = 1;
 	char *si_name = NULL, *so_name = NULL;
 	struct sockaddr addr_out, addr_in;
 	fd_set rfds;
 
 	int opt;
-	while ((opt = getopt(argc, argv, "i:o:")) != -1) {
+	while ((opt = getopt(argc, argv, "i:o:f:c:")) != -1) {
 		size_t len = 0;
 		switch (opt) {
 		case 'i':
@@ -44,12 +45,19 @@ int main(int argc, char *argv[]) {
 			so_name = (char *)malloc(strlen(optarg));
 			so_name = strcpy(so_name, optarg);
 			break;
+		case 'f':
+			frequency = atoi(optarg);
+			break;
+		case 'c':
+			count = atoi(optarg);
+			break;
 		}
 	}
 
 	if (so_name == NULL && si_name == NULL) {
 		printf("no input or output socket. goodbye.\n");
-		printf("Usage: %s [-i input_socket] [-o output_socket]\n", argv[0]);
+		printf("Usage: %s [-c count] [-f freq] [-i input_socket] [-o output_socket]\n", argv[0]);
+		printf("count and freq works only for copy of program which only has output socket, and doesn't have input socket\n");
 		return -1;
 	}
 
@@ -72,43 +80,50 @@ int main(int argc, char *argv[]) {
 		if (si == -1) {
 			return -1;
 		}
+		recv(si, &count, sizeof(count), 0);
+		printf("r_count: %d\n", count);
 	}
+	if (so_name) send(so_accepted, &count, sizeof(count), 0);
 
-	// Receive package and send new ts
-	if (si_name != NULL) {
-		if (buf == NULL) {
-			buf = (struct packet_data *)malloc(MSG_LEN);
-			bzero(buf, MSG_LEN);
+	struct timespec freq_ts;
+	while (count--) {
+		// Receive package and send new ts
+		if (si_name != NULL) {
+			if (buf == NULL) {
+				buf = (struct packet_data *)malloc(MSG_LEN);
+				bzero(buf, MSG_LEN);
+			}
+			//int retval = recv(si, buf, MSG_LEN, 0);
+			if (recv(si, buf, MSG_LEN, 0) == -1) {
+				perror("recv()");
+				free(buf);
+				close(si);
+				return -1;
+			}
 		}
-		if (recv(si, buf, MSG_LEN, 0) != MSG_LEN) {
-			perror("recv()");
-			free(buf);
-			close(si);
-			return -1;
-		}
-	}
-	if (so_name != NULL) {
-		if (buf == NULL) {
-			buf = (struct packet_data *) malloc(MSG_LEN);
-			bzero(buf, MSG_LEN);
-		}
-		if (fill_next_packet(buf) == -1) {
-			perror("fill_new_ts()");
-			close(so);
-			close(so_accepted);
-			free(buf);
-		}
+		if (so_name) {
+			if (!buf) {
+				buf = (struct packet_data *) malloc(MSG_LEN);
+				bzero(buf, MSG_LEN);
+			}
+			if (fill_next_packet(buf) == -1) {
+				perror("fill_new_ts()");
+				close(so);
+				close(so_accepted);
+				free(buf);
+			}
 
-		send(so_accepted, buf, MSG_LEN, 0);
-	} else if (si_name != NULL){
-		struct packet_data *pd = buf;
-		for (uint8_t pos = 0; pd[pos].num != 0; pos++) {
-			printf("pd: %p\n", (void *)pd);
-			printf("pd->num: %x\n", pd[pos].num);
-			printf("pd->ts: %ld\n", pd[pos].ts.tv_sec);
-			printf("pd->ts: %ld\n", pd[pos].ts.tv_nsec);
-			printf("\n");
+			send(so_accepted, buf, MSG_LEN, 0);
+		} else if (si_name) {
+			struct packet_data *pd = buf;
+			for (uint8_t pos = 0; pd[pos].num != 0; pos++) {
+				printf("%d, %d, %ld, %ld\n", count, pos, pd[pos].ts.tv_sec, pd[pos].ts.tv_nsec);
+			}
 		}
+		bzero(buf, MSG_LEN);
+		freq_ts.tv_nsec = 1000000000.0/frequency;
+		freq_ts.tv_sec = 0;
+		nanosleep(&freq_ts, NULL);
 	}
 
 	if (si_name) free(si_name);
