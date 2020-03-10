@@ -6,7 +6,7 @@ relay: $(OBJ)
 
 .PHONY:clean_socks
 clean_socks:
-	rm -f sock1 sock2 sock3 sock4
+	rm -f sock1 sock2 sock3 sock4 sock5
 
 .PHONY:clean
 clean:
@@ -18,4 +18,5 @@ test: relay clean_socks
 	./relay -i sock1 -o sock2 &
 	./relay -i sock2 -o sock3 &
 	./relay -i sock3 -o sock4 &
-	./relay -i sock4 &
+	./relay -i sock4 -o sock5 &
+	./relay -i sock5

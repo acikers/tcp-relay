@@ -93,12 +93,11 @@ int main(int argc, char *argv[]) {
 				buf = (struct packet_data *)malloc(MSG_LEN);
 				bzero(buf, MSG_LEN);
 			}
-			//int retval = recv(si, buf, MSG_LEN, 0);
-			if (recv(si, buf, MSG_LEN, 0) == -1) {
+			int retval = recv(si, buf, MSG_LEN, 0);
+			if (retval == -1) {
 				perror("recv()");
-				free(buf);
-				close(si);
-				return -1;
+			} else if (retval == 0) {
+				break;
 			}
 		}
 		if (so_name) {
@@ -108,17 +107,20 @@ int main(int argc, char *argv[]) {
 			}
 			if (fill_next_packet(buf) == -1) {
 				perror("fill_new_ts()");
-				close(so);
-				close(so_accepted);
-				free(buf);
+				break;
 			}
 
 			send(so_accepted, buf, MSG_LEN, 0);
 		} else if (si_name) {
 			struct packet_data *pd = buf;
-			for (uint8_t pos = 0; pd[pos].num != 0; pos++) {
+			uint8_t pos = 0;
+			struct timespec ts = {0};
+			clock_gettime(CLOCK_MONOTONIC, &ts);
+			for (pos = 0; pd[pos].num != 0; pos++) {
 				printf("%d, %d, %ld, %ld\n", count, pos, pd[pos].ts.tv_sec, pd[pos].ts.tv_nsec);
 			}
+			printf("%d, %d, %ld, %ld\n", count, pos, ts.tv_sec, ts.tv_nsec);
+
 		}
 		bzero(buf, MSG_LEN);
 		freq_ts.tv_nsec = 1000000000.0/frequency;
