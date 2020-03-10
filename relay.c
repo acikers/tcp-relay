@@ -65,24 +65,16 @@ int main(int argc, char *argv[]) {
 			return -1;
 		}
 
-		if (buf == NULL) {
-			buf = (char *) malloc(MSG_LEN);
-		}
-		if (fill_next_ts(buf) == -1) {
-			perror("fill_new_ts()");
-			close(so);
-			close(so_accepted);
-			free(buf);
-		}
-		send(so_accepted, buf, MSG_LEN, 0);
 	}
 	if (si_name != NULL) {
 		si = create_input_sock(&addr_in, si_name);
 		if (si == -1) {
 			return -1;
 		}
-		// Just in case
-		// But it always be true
+	}
+
+	// Receive package and send new ts
+	if (si_name != NULL) {
 		if (buf == NULL) {
 			buf = (char *)malloc(MSG_LEN);
 			bzero(buf, MSG_LEN);
@@ -104,15 +96,27 @@ int main(int argc, char *argv[]) {
 		printf("enanosecs: %ld\n", ts_end.tv_nsec);
 		printf("diff: %lf\n", difftime(ts_end.tv_sec, ts_start.tv_sec));
 		printf("diff_nanos: %ld\n", ts_end.tv_nsec - ts_start.tv_nsec);
+	}
+	if (so_name != NULL) {
+		if (buf == NULL) {
+			buf = (char *) malloc(MSG_LEN);
+			bzero(buf, MSG_LEN);
+		}
+		if (fill_next_ts(buf) == -1) {
+			perror("fill_new_ts()");
+			close(so);
+			close(so_accepted);
+			free(buf);
+		}
 
-		free(buf);
-		close(si);
-	} else {
+		send(so_accepted, buf, MSG_LEN, 0);
 	}
 
 	if (si_name) free(si_name);
 	if (so_name) free(so_name);
+	if (buf) free(buf);
 
+	close(si);
 	close(so_accepted);
 	close(so);
 	return 0;
