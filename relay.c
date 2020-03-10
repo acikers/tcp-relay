@@ -1,13 +1,17 @@
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
 #include <time.h>
+#include <inttypes.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 
-#define MAX_SOCKLEN 1024
+#define MAX_SOCKLEN 5
 #define MSG_LEN 1024
 
 struct packet_data {
@@ -15,8 +19,8 @@ struct packet_data {
 	struct timespec ts;
 };
 
-int create_output_sock(struct sockaddr *, char *);
-int create_input_sock(struct sockaddr *, char *);
+int create_output_sock(struct sockaddr_in *, uint16_t);
+int create_input_sock(struct sockaddr_in *, uint16_t);
 
 int fill_next_packet(struct packet_data *);
 
@@ -27,47 +31,55 @@ int main(int argc, char *argv[]) {
 	int so_insize = 0;
 	uint8_t frequency = 100;
 	uint16_t count = 1;
-	char *si_name = NULL, *so_name = NULL;
-	struct sockaddr addr_out, addr_in;
-	fd_set rfds;
+	uint16_t out_port = 0;
+	uint16_t in_port = 0;
+	struct sockaddr_in tcp_addr_out = {0};
+	struct sockaddr_in tcp_addr_in = {0};
 
 	int opt;
 	while ((opt = getopt(argc, argv, "i:o:f:c:")) != -1) {
 		size_t len = 0;
 		switch (opt) {
 		case 'i':
-			len = strlen(optarg);
-			si_name = (char *)malloc(strlen(optarg));
-			si_name = strcpy(si_name, optarg);
+			in_port = (uint16_t)strtoul(optarg, NULL, 10);
 			break;
 		case 'o':
-			len = strlen(optarg);
-			so_name = (char *)malloc(strlen(optarg));
-			so_name = strcpy(so_name, optarg);
+			out_port = (uint16_t)strtoul(optarg, NULL, 10);
 			break;
 		case 'f':
-			frequency = atoi(optarg);
+			frequency = (uint8_t)strtoul(optarg, NULL, 10);
 			break;
 		case 'c':
-			count = atoi(optarg);
+			count = (uint16_t)strtoul(optarg, NULL, 10);
 			break;
+		case '?':
+			if (optopt == 'i' || optopt == 'o' || optopt == 'f' || optopt == 'c') {
+				fprintf(stderr, "Option -%c requires an argument\n", optopt);
+			} else if (isprint(optopt)) {
+				fprintf(stderr, "Unknown option '-%c'\n", optopt);
+			} else {
+				fprintf(stderr, "Unknown option character '\\x%x'\n", optopt);
+			}
+			return -1;
+		default:
+			abort();
 		}
 	}
 
-	if (so_name == NULL && si_name == NULL) {
+	if (!out_port && !in_port) {
 		printf("no input or output socket. goodbye.\n");
-		printf("Usage: %s [-c count] [-f freq] [-i input_socket] [-o output_socket]\n", argv[0]);
+		printf("Usage: %s [-c count] [-f freq] [-i input_port] [-o output_port]\n", argv[0]);
 		printf("count and freq works only for copy of program which only has output socket, and doesn't have input socket\n");
 		return -1;
 	}
 
 	struct packet_data *buf = NULL;	// buffer for package
-	if (so_name != NULL) {
-		so = create_output_sock(&addr_out, so_name);
+	if (out_port) {
+		so = create_output_sock(&tcp_addr_out, out_port);
 		if (so == -1) {
 			return -1;
 		}
-		so_accepted = accept(so, &addr_out, &so_insize);
+		so_accepted = accept(so, (struct sockaddr *)&tcp_addr_out, &so_insize);
 		if (so_accepted == -1) {
 			perror("accept()");
 			close(so);
@@ -75,20 +87,19 @@ int main(int argc, char *argv[]) {
 		}
 
 	}
-	if (si_name != NULL) {
-		si = create_input_sock(&addr_in, si_name);
+	if (in_port) {
+		si = create_input_sock(&tcp_addr_in, in_port);
 		if (si == -1) {
 			return -1;
 		}
 		recv(si, &count, sizeof(count), 0);
-		printf("r_count: %d\n", count);
 	}
-	if (so_name) send(so_accepted, &count, sizeof(count), 0);
+	if (out_port) send(so_accepted, &count, sizeof(count), 0);
 
 	struct timespec freq_ts;
 	while (count--) {
 		// Receive package and send new ts
-		if (si_name != NULL) {
+		if (in_port) {
 			if (buf == NULL) {
 				buf = (struct packet_data *)malloc(MSG_LEN);
 				bzero(buf, MSG_LEN);
@@ -100,7 +111,7 @@ int main(int argc, char *argv[]) {
 				break;
 			}
 		}
-		if (so_name) {
+		if (out_port) {
 			if (!buf) {
 				buf = (struct packet_data *) malloc(MSG_LEN);
 				bzero(buf, MSG_LEN);
@@ -111,7 +122,7 @@ int main(int argc, char *argv[]) {
 			}
 
 			send(so_accepted, buf, MSG_LEN, 0);
-		} else if (si_name) {
+		} else if (in_port) {
 			struct packet_data *pd = buf;
 			uint8_t pos = 0;
 			struct timespec ts = {0};
@@ -128,8 +139,6 @@ int main(int argc, char *argv[]) {
 		nanosleep(&freq_ts, NULL);
 	}
 
-	if (si_name) free(si_name);
-	if (so_name) free(so_name);
 	if (buf) free(buf);
 
 	close(si);
@@ -148,21 +157,30 @@ int fill_next_packet(struct packet_data *packet) {
 	return 0;
 }
 
-int create_output_sock(struct sockaddr *ao, char *path) {
+int create_output_sock(struct sockaddr_in *ao, uint16_t port) {
 	int ret = 0;
 
-	ret = socket(AF_UNIX, SOCK_STREAM, 0);
+	memset(ao, '\0', sizeof(struct sockaddr));
+	ao->sin_family = AF_INET;
+	ao->sin_port = htons(port);
+	ao->sin_addr.s_addr = INADDR_ANY;
+
+	ret = socket(ao->sin_family, SOCK_STREAM, IPPROTO_TCP);
 	if (ret == -1) {
 		perror("socket()");
 		return ret;
 	}
 
-	memset(ao, '\0', sizeof(struct sockaddr));
-	ao->sa_family = AF_UNIX;
-	strncpy(ao->sa_data, path, sizeof(ao->sa_data) - 1);
+	if (setsockopt(ret, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) == -1) {
+		perror("setsockopt(... , SO_REUSEADDR, ...)");
+		close(ret);
+		return -1;
+	}
 
-	if (bind(ret, ao, sizeof(struct sockaddr)) == -1) {
+	if (bind(ret, (struct sockaddr *)ao, sizeof(struct sockaddr_in)) == -1) {
 		perror("bind()");
+		printf("ao->sin_port: %" PRIu16 "\n", port);
+		close(ret);
 		return -1;
 	}
 
@@ -176,21 +194,30 @@ int create_output_sock(struct sockaddr *ao, char *path) {
 	return ret;
 }
 
-int create_input_sock(struct sockaddr *ao, char *path) {
+int create_input_sock(struct sockaddr_in *ao, uint16_t port) {
 	int ret = 0;
 
-	ret = socket(AF_UNIX, SOCK_STREAM, 0);
+	memset(ao, '\0', sizeof(struct sockaddr));
+	ao->sin_family = AF_INET;
+	ao->sin_port = htons(port);
+	ao->sin_addr.s_addr = INADDR_ANY;
+
+	ret = socket(ao->sin_family, SOCK_STREAM, IPPROTO_TCP);
 	if (ret == -1) {
 		perror("socket()");
 		return ret;
 	}
 
-	memset(ao, '\0', sizeof(struct sockaddr));
-	ao->sa_family = AF_UNIX;
-	strncpy(ao->sa_data, path, sizeof(ao->sa_data) - 1);
+	if (setsockopt(ret, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) == -1) {
+		perror("setsockopt(... , SO_REUSEADDR, ...)");
+		close(ret);
+		return -1;
+	}
 
-	if (connect(ret, ao, sizeof(struct sockaddr)) == -1) {
+	if (connect(ret, (struct sockaddr *)ao, sizeof(struct sockaddr_in)) == -1) {
 		perror("connect()");
+		printf("ao->sin_port: %" PRIu16 "\n", port);
+		close(ret);
 		return -1;
 	}
 

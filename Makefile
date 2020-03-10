@@ -4,19 +4,15 @@ OBJ=$(SRC:.c=.o)
 relay: $(OBJ)
 	$(CC) -o $@ $^
 
-.PHONY:clean_socks
-clean_socks:
-	rm -f sock1 sock2 sock3 sock4 sock5
-
 .PHONY:clean
 clean:
 	rm -f relay $(OBJ)
 
 .PHONY:test
-test: relay clean_socks
-	./relay -c 5 -o sock1 &
-	./relay -i sock1 -o sock2 &
-	./relay -i sock2 -o sock3 &
-	./relay -i sock3 -o sock4 &
-	./relay -i sock4 -o sock5 &
-	./relay -i sock5
+test: relay
+	./relay -c 50 -f 100 -o 55551 &
+	./relay -i 55551 -o 55552 &
+	./relay -i 55552 -o 55553 &
+	./relay -i 55553 -o 55554 &
+	./relay -i 55554 -o 55555 &
+	./relay -i 55555
