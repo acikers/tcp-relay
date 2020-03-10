@@ -47,6 +47,7 @@ int main(int argc, char *argv[]) {
 
 	if (so_name == NULL && si_name == NULL) {
 		printf("no input or output socket. goodbye.\n");
+		printf("Usage: %s [-i input_socket] [-o output_socket]\n", argv[0]);
 		return -1;
 	}
 
