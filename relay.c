@@ -18,10 +18,7 @@ struct packet_data {
 int create_output_sock(struct sockaddr *, char *);
 int create_input_sock(struct sockaddr *, char *);
 
-struct packet_data *find_place_for_data(struct packet_data *);		// Return address with empty place
-struct packet_data *find_last_data(struct packet_data *);		// Return address where struct timeval begin
-struct packet_data *find_next_data(struct packet_data *);		// Return address of next data in package
-int fill_next_ts(struct packet_data *);
+int fill_next_packet(struct packet_data *);
 
 
 
@@ -41,13 +38,11 @@ int main(int argc, char *argv[]) {
 			len = strlen(optarg);
 			si_name = (char *)malloc(strlen(optarg));
 			si_name = strcpy(si_name, optarg);
-			printf("si_name: %s\n", si_name);
 			break;
 		case 'o':
 			len = strlen(optarg);
 			so_name = (char *)malloc(strlen(optarg));
 			so_name = strcpy(so_name, optarg);
-			printf("so_name: %s\n", so_name);
 			break;
 		}
 	}
@@ -64,9 +59,7 @@ int main(int argc, char *argv[]) {
 		if (so == -1) {
 			return -1;
 		}
-		printf("prepare to accept\n");
 		so_accepted = accept(so, &addr_out, &so_insize);
-		printf("accepted\n");
 		if (so_accepted == -1) {
 			perror("accept()");
 			close(so);
@@ -99,7 +92,7 @@ int main(int argc, char *argv[]) {
 			buf = (struct packet_data *) malloc(MSG_LEN);
 			bzero(buf, MSG_LEN);
 		}
-		if (fill_next_ts(buf) == -1) {
+		if (fill_next_packet(buf) == -1) {
 			perror("fill_new_ts()");
 			close(so);
 			close(so_accepted);
@@ -107,20 +100,15 @@ int main(int argc, char *argv[]) {
 		}
 
 		send(so_accepted, buf, MSG_LEN, 0);
-	} else  if (si_name != NULL){
-		struct timespec ts_start, ts_end;
-		memcpy(&ts_start, &(find_last_data(buf)->ts), sizeof(struct timespec));
-
-
-		printf("t: %ld\n", ts_start.tv_sec);
-		printf("time: %s", ctime(&ts_start.tv_sec));
-		printf("nanosecs: %ld\n", ts_start.tv_nsec);
-		clock_gettime(CLOCK_MONOTONIC, &ts_end);
-		printf("et: %ld\n", ts_end.tv_sec);
-		printf("etime: %s\n", ctime(&ts_end.tv_sec));
-		printf("enanosecs: %ld\n", ts_end.tv_nsec);
-		printf("diff: %lf\n", difftime(ts_end.tv_sec, ts_start.tv_sec));
-		printf("diff_nanos: %ld\n", ts_end.tv_nsec - ts_start.tv_nsec);
+	} else if (si_name != NULL){
+		struct packet_data *pd = buf;
+		for (uint8_t pos = 0; pd[pos].num != 0; pos++) {
+			printf("pd: %p\n", (void *)pd);
+			printf("pd->num: %x\n", pd[pos].num);
+			printf("pd->ts: %ld\n", pd[pos].ts.tv_sec);
+			printf("pd->ts: %ld\n", pd[pos].ts.tv_nsec);
+			printf("\n");
+		}
 	}
 
 	if (si_name) free(si_name);
@@ -134,37 +122,13 @@ int main(int argc, char *argv[]) {
 }
 
 
-int fill_next_ts(struct packet_data *packet) {
-	struct packet_data *n_data = find_place_for_data(packet);
-	if (n_data == NULL) {
-		errno = EFAULT;
-		return -1;
-	}
-	if (clock_gettime(CLOCK_MONOTONIC, &(n_data->ts)) == -1) {
-		return -1;
-	}
-	n_data->num = 1;
+int fill_next_packet(struct packet_data *packet) {
+	uint8_t num;
+	for (num = 0; packet[num].num != 0; num++) {}
+	packet[num].num = num+1;
+	clock_gettime(CLOCK_MONOTONIC, &(packet[num].ts));
 
 	return 0;
-}
-
-inline struct packet_data *find_next_data(struct packet_data *packet) {
-	if (packet == NULL) {
-		return NULL;
-	}
-	return packet++;
-}
-
-inline struct packet_data *find_last_data(struct packet_data *packet) {
-	struct packet_data *ret = NULL;
-	for (ret = packet; ret != NULL && (ret+sizeof(struct packet_data))->num != 0; ret++) {}
-	return ret++;
-}
-
-inline struct packet_data *find_place_for_data(struct packet_data *packet) {
-	struct packet_data *ret = NULL;
-	for (ret = packet; ret != NULL && (ret+sizeof(struct packet_data))->num != 0; ret ++) {}
-	return ret;
 }
 
 int create_output_sock(struct sockaddr *ao, char *path) {
