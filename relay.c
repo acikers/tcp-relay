@@ -136,9 +136,12 @@ int main(int argc, char *argv[]) {
 			struct timespec ts = {0};
 			clock_gettime(CLOCK_MONOTONIC, &ts);
 			for (pos = 0; pd[pos].num != 0; pos++) {
-				printf("%" PRIu16 ", %" PRIu8 ", %ld, %ld\n", cur_count, pos, pd[pos].ts.tv_sec, pd[pos].ts.tv_nsec);
+				printf("%" PRIu16 ",%" PRIu8 ",%ld,%ld,%ld\n",
+						cur_count, pos, pd[pos].ts.tv_sec, pd[pos].ts.tv_nsec,
+						(pos!=0) ? (pd[pos].ts.tv_sec - pd[pos-1].ts.tv_sec) * 1000000000 + (pd[pos].ts.tv_nsec - pd[pos-1].ts.tv_nsec) : 0);
 			}
-			printf("%" PRIu16 ", %" PRIu8 ", %ld, %ld\n", cur_count, pos, ts.tv_sec, ts.tv_nsec);
+			printf("%" PRIu16 ",%" PRIu8 ",%ld,%ld,%ld\n", cur_count, pos, ts.tv_sec, ts.tv_nsec,
+					(ts.tv_sec - pd[pos-1].ts.tv_sec) * 1000000000 + (ts.tv_nsec - pd[pos-1].ts.tv_nsec));
 
 		}
 		bzero(buf, MSG_LEN);

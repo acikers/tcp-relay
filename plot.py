@@ -1,25 +1,37 @@
 #!/bin/env python
+import sys
 import numpy as np
-import matplotlib.pyplot as plt
+from csv import DictReader as dr
+from matplotlib import pyplot as plt
+from matplotlib import mlab
 
-a = np.arange(4)
-p = np.linspace(0, 100, 6001)
-ax = plt.gca()
-lines = [
-    ('linear', None),
-    ('higher', '--'),
-    ('lower', '--'),
-    ('nearest', '-.'),
-    ('midpoint', '-.'),
-]
-for interpolation, style in lines:
-    ax.plot(
-        p, np.percentile(a, p, interpolation=interpolation),
-        label=interpolation, linestyle=style)
-ax.set(
-    title='Interpolation methods for list: ' + str(a),
-    xlabel='Percentile',
-    ylabel='List item returned',
-    yticks=a)
-ax.legend()
-plt.show()
+
+if len(sys.argv) != 3 :
+    print('Usage: ' + sys.argv[0] + ' input.csv output.pdf')
+    sys.exit()
+
+x = []
+with open(sys.argv[1]) as csvfile:
+    reader = dr(csvfile, fieldnames=['count', 'pos', 'sec', 'nsec', 'delta'])
+    for row in reader:
+        if row['delta'] != '0':
+            x.append(row['delta'])
+
+nb = 50
+x = np.asarray(x, dtype='int')
+
+p = np.array([50.0, 90.0, 99.0, 100.0])
+perc = np.percentile(x, q=p)
+
+plt.figure(figsize=(20,10))
+n, bins, patches = plt.hist(x, nb, histtype='bar', facecolor='blue', alpha=0.6)
+plt.locator_params(axis='x', nbins=nb)
+plt.xticks(rotation=90)
+plt.xlabel('Наносекунды')
+plt.ylabel('# сообщений')
+plt.vlines(perc[0], ymin=0, ymax=max(n), linestyles='dashed', color='green', label=perc[0])
+plt.vlines(perc[1], ymin=0, ymax=max(n), linestyles='dashed', color='yellow', label=perc[1])
+plt.vlines(perc[2], ymin=0, ymax=max(n), linestyles='dashed', color='orange', label=perc[2])
+plt.vlines(perc[3], ymin=0, ymax=max(n), linestyles='dashed', color='red', label=perc[3])
+plt.legend()
+plt.savefig(sys.argv[2])
