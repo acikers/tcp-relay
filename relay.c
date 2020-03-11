@@ -100,7 +100,7 @@ int main(int argc, char *argv[]) {
 	for (uint16_t cur_count = 0; cur_count < count; cur_count++) {
 		// Receive package and send new ts
 		if (in_port) {
-			if (buf == NULL) {
+			if (!buf) {
 				buf = (struct packet_data *)malloc(MSG_LEN);
 				bzero(buf, MSG_LEN);
 			}
@@ -116,6 +116,14 @@ int main(int argc, char *argv[]) {
 				buf = (struct packet_data *) malloc(MSG_LEN);
 				bzero(buf, MSG_LEN);
 			}
+
+			// First in chain should wait to create needed frequency
+			if (!in_port) {
+				freq_ts.tv_nsec = 1000000000.0/frequency;
+				freq_ts.tv_sec = 0;
+				nanosleep(&freq_ts, NULL);
+			}
+
 			if (fill_next_packet(buf) == -1) {
 				perror("fill_new_ts()");
 				break;
@@ -134,9 +142,6 @@ int main(int argc, char *argv[]) {
 
 		}
 		bzero(buf, MSG_LEN);
-		freq_ts.tv_nsec = 1000000000.0/frequency;
-		freq_ts.tv_sec = 0;
-		nanosleep(&freq_ts, NULL);
 	}
 
 	if (buf) free(buf);
