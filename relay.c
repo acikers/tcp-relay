@@ -97,7 +97,7 @@ int main(int argc, char *argv[]) {
 	if (out_port) send(so_accepted, &count, sizeof(count), 0);
 
 	struct timespec freq_ts;
-	for (uint8_t cur_count = 0; cur_count < count; cur_count++) {
+	for (uint16_t cur_count = 0; cur_count < count; cur_count++) {
 		// Receive package and send new ts
 		if (in_port) {
 			if (buf == NULL) {
