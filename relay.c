@@ -1,5 +1,4 @@
 #include <ctype.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
@@ -10,7 +9,7 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <sys/stat.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 
 #define MAX_SOCKLEN 5
@@ -28,11 +27,13 @@ int fill_next_packet(struct packet_data *);
 
 void print_usage(char *argv[]);
 
+
 int main(int argc, char *argv[]) { 
 	int so, si, so_accepted = 0;
 	int retval;
 	int so_insize = 0;
-	char *resfile = NULL;
+	char *respath = NULL;
+	FILE *resfile = NULL;
 	uint32_t frequency = 100;
 	uint32_t count = 1;
 	uint16_t out_port = 0;
@@ -57,7 +58,7 @@ int main(int argc, char *argv[]) {
 			count = (uint32_t)strtoul(optarg, NULL, 10);
 			break;
 		case 'r':
-			resfile = strdup(optarg);
+			respath = strdup(optarg);
 			break;
 		case '?':
 			if (optopt == 'i' || optopt == 'o' || optopt == 'f' || optopt == 'c') {
@@ -80,6 +81,7 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 
+	// Prepare output socket
 	struct packet_data *buf = NULL;	// buffer for package
 	if (out_port) {
 		so = create_output_sock(&tcp_addr_out, out_port);
@@ -94,6 +96,7 @@ int main(int argc, char *argv[]) {
 		}
 
 	}
+	// Prepare input socket
 	if (in_port) {
 		si = create_input_sock(&tcp_addr_in, in_port);
 		if (si == -1) {
@@ -101,9 +104,21 @@ int main(int argc, char *argv[]) {
 		}
 		recv(si, &count, sizeof(count), 0);
 	}
+	// Send count of packages before translation begins
 	if (out_port) send(so_accepted, &count, sizeof(count), 0);
+	else {
+		resfile = fopen(respath, "w");
+		if (resfile == NULL) {
+			perror("fopen()");
+			if (respath) free(respath);
+			close(si);
+			return -1;
+		}
+	}
 
 	struct timespec freq_ts;
+	freq_ts.tv_nsec = 1000000000.0/frequency;
+	freq_ts.tv_sec = 0;
 	for (uint32_t cur_count = 0; cur_count < count; cur_count++) {
 		// Receive package and send new ts
 		if (in_port) {
@@ -111,7 +126,7 @@ int main(int argc, char *argv[]) {
 				buf = (struct packet_data *)malloc(MSG_LEN);
 				bzero(buf, MSG_LEN);
 			}
-			int retval = recv(si, buf, MSG_LEN, 0);
+			int retval = recv(si, buf, MSG_LEN, MSG_WAITALL);
 			if (retval == -1) {
 				perror("recv()");
 			} else if (retval == 0) {
@@ -124,25 +139,25 @@ int main(int argc, char *argv[]) {
 				bzero(buf, MSG_LEN);
 			}
 
-			// First in chain should wait to create needed frequency
-			if (!in_port) {
-				freq_ts.tv_nsec = 1000000000.0/frequency;
-				freq_ts.tv_sec = 0;
-				nanosleep(&freq_ts, NULL);
-			}
-
 			if (fill_next_packet(buf) == -1) {
 				perror("fill_new_ts()");
 				break;
 			}
 
 			send(so_accepted, buf, MSG_LEN, 0);
-		} else if (in_port) {
+
+			// First in chain should wait to create needed frequency
+			if (!in_port) {
+				nanosleep(&freq_ts, NULL);
+			}
+		} else {
+			// Last in chain has only input
+			// And should write 
 			struct packet_data *pd = buf;
 			uint8_t pos = 0;
 			struct timespec ts = {0};
 			clock_gettime(CLOCK_MONOTONIC, &ts);
-			printf("%ld,%ld,%ld,%ld,%ld\n", pd[0].ts.tv_sec, pd[0].ts.tv_nsec, ts.tv_sec, ts.tv_nsec,
+			fprintf(resfile, "%ld,%ld,%ld,%ld,%ld\n", pd[0].ts.tv_sec, pd[0].ts.tv_nsec, ts.tv_sec, ts.tv_nsec,
 					(ts.tv_sec - pd[0].ts.tv_sec) * 1000000000 + (ts.tv_nsec - pd[0].ts.tv_nsec));
 
 		}
@@ -150,8 +165,9 @@ int main(int argc, char *argv[]) {
 	}
 
 	if (buf) free(buf);
-	if (resfile) free(buf);
+	if (respath) free(respath);
 
+	fclose(resfile);
 	close(si);
 	close(so_accepted);
 	close(so);
@@ -184,6 +200,12 @@ int create_output_sock(struct sockaddr_in *ao, uint16_t port) {
 
 	if (setsockopt(ret, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) == -1) {
 		perror("setsockopt(... , SO_REUSEADDR, ...)");
+		close(ret);
+		return -1;
+	}
+
+	if (setsockopt(ret, IPPROTO_TCP, TCP_NODELAY, &(int){1}, sizeof(int)) == -1) {
+		perror("setsockopt(... , TCP_NODELAY, ...)");
 		close(ret);
 		return -1;
 	}
@@ -221,6 +243,12 @@ int create_input_sock(struct sockaddr_in *ao, uint16_t port) {
 
 	if (setsockopt(ret, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) == -1) {
 		perror("setsockopt(... , SO_REUSEADDR, ...)");
+		close(ret);
+		return -1;
+	}
+
+	if (setsockopt(ret, IPPROTO_TCP, TCP_NODELAY, &(int){1}, sizeof(int)) == -1) {
+		perror("setsockopt(... , TCP_NODELAY, ...)");
 		close(ret);
 		return -1;
 	}
