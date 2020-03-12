@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
@@ -9,6 +10,7 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 
 #define MAX_SOCKLEN 5
@@ -24,11 +26,13 @@ int create_input_sock(struct sockaddr_in *, uint16_t);
 
 int fill_next_packet(struct packet_data *);
 
+void print_usage(char *argv[]);
 
 int main(int argc, char *argv[]) { 
 	int so, si, so_accepted = 0;
 	int retval;
 	int so_insize = 0;
+	char *resfile = NULL;
 	uint32_t frequency = 100;
 	uint32_t count = 1;
 	uint16_t out_port = 0;
@@ -37,7 +41,7 @@ int main(int argc, char *argv[]) {
 	struct sockaddr_in tcp_addr_in = {0};
 
 	int opt;
-	while ((opt = getopt(argc, argv, "i:o:f:c:")) != -1) {
+	while ((opt = getopt(argc, argv, "i:o:f:c:r:")) != -1) {
 		size_t len = 0;
 		switch (opt) {
 		case 'i':
@@ -52,6 +56,9 @@ int main(int argc, char *argv[]) {
 		case 'c':
 			count = (uint32_t)strtoul(optarg, NULL, 10);
 			break;
+		case 'r':
+			resfile = strdup(optarg);
+			break;
 		case '?':
 			if (optopt == 'i' || optopt == 'o' || optopt == 'f' || optopt == 'c') {
 				fprintf(stderr, "Option -%c requires an argument\n", optopt);
@@ -60,6 +67,7 @@ int main(int argc, char *argv[]) {
 			} else {
 				fprintf(stderr, "Unknown option character '\\x%x'\n", optopt);
 			}
+			print_usage(argv);
 			return -1;
 		default:
 			abort();
@@ -67,9 +75,8 @@ int main(int argc, char *argv[]) {
 	}
 
 	if (!out_port && !in_port) {
-		printf("no input or output socket. goodbye.\n");
-		printf("Usage: %s [-c count] [-f freq] [-i input_port] [-o output_port]\n", argv[0]);
-		printf("count and freq works only for copy of program which only has output socket, and doesn't have input socket\n");
+		fprintf(stderr, "no input or output socket. goodbye.\n");
+		print_usage(argv);
 		return -1;
 	}
 
@@ -137,20 +144,13 @@ int main(int argc, char *argv[]) {
 			clock_gettime(CLOCK_MONOTONIC, &ts);
 			printf("%ld,%ld,%ld,%ld,%ld\n", pd[0].ts.tv_sec, pd[0].ts.tv_nsec, ts.tv_sec, ts.tv_nsec,
 					(ts.tv_sec - pd[0].ts.tv_sec) * 1000000000 + (ts.tv_nsec - pd[0].ts.tv_nsec));
-			/*for (pos = 0; pd[pos].num != 0; pos++) {
-				printf("%" PRIu16 ",%" PRIu8 ",%ld,%ld,%ld\n",
-						cur_count, pos, pd[pos].ts.tv_sec, pd[pos].ts.tv_nsec,
-						(pos!=0) ? (pd[pos].ts.tv_sec - pd[pos-1].ts.tv_sec) * 1000000000 + (pd[pos].ts.tv_nsec - pd[pos-1].ts.tv_nsec) : 0);
-			}
-			printf("%" PRIu16 ",%" PRIu8 ",%ld,%ld,%ld\n", cur_count, pos, ts.tv_sec, ts.tv_nsec,
-					(ts.tv_sec - pd[pos-1].ts.tv_sec) * 1000000000 + (ts.tv_nsec - pd[pos-1].ts.tv_nsec));
-			*/
 
 		}
 		bzero(buf, MSG_LEN);
 	}
 
 	if (buf) free(buf);
+	if (resfile) free(buf);
 
 	close(si);
 	close(so_accepted);
@@ -233,4 +233,10 @@ int create_input_sock(struct sockaddr_in *ao, uint16_t port) {
 	}
 
 	return ret;
+}
+
+void print_usage(char *argv[]) {
+	fprintf(stderr, "Usage: %s [-c count] [-f freq] [-i input_port] [-o output_port] [-r resfile.csv]\n", argv[0]);
+	fprintf(stderr, "count and freq works only for copy of program which only has output socket, and doesn't have input socket\n");
+	fprintf(stderr, "resfile - only valid for last app in chain\n");
 }
