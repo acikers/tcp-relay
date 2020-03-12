@@ -29,8 +29,8 @@ int main(int argc, char *argv[]) {
 	int so, si, so_accepted = 0;
 	int retval;
 	int so_insize = 0;
-	uint8_t frequency = 100;
-	uint16_t count = 1;
+	uint32_t frequency = 100;
+	uint32_t count = 1;
 	uint16_t out_port = 0;
 	uint16_t in_port = 0;
 	struct sockaddr_in tcp_addr_out = {0};
@@ -47,10 +47,10 @@ int main(int argc, char *argv[]) {
 			out_port = (uint16_t)strtoul(optarg, NULL, 10);
 			break;
 		case 'f':
-			frequency = (uint8_t)strtoul(optarg, NULL, 10);
+			frequency = (uint32_t)strtoul(optarg, NULL, 10);
 			break;
 		case 'c':
-			count = (uint16_t)strtoul(optarg, NULL, 10);
+			count = (uint32_t)strtoul(optarg, NULL, 10);
 			break;
 		case '?':
 			if (optopt == 'i' || optopt == 'o' || optopt == 'f' || optopt == 'c') {
@@ -97,7 +97,7 @@ int main(int argc, char *argv[]) {
 	if (out_port) send(so_accepted, &count, sizeof(count), 0);
 
 	struct timespec freq_ts;
-	for (uint16_t cur_count = 0; cur_count < count; cur_count++) {
+	for (uint32_t cur_count = 0; cur_count < count; cur_count++) {
 		// Receive package and send new ts
 		if (in_port) {
 			if (!buf) {
@@ -135,13 +135,16 @@ int main(int argc, char *argv[]) {
 			uint8_t pos = 0;
 			struct timespec ts = {0};
 			clock_gettime(CLOCK_MONOTONIC, &ts);
-			for (pos = 0; pd[pos].num != 0; pos++) {
+			printf("%ld,%ld,%ld,%ld,%ld\n", pd[0].ts.tv_sec, pd[0].ts.tv_nsec, ts.tv_sec, ts.tv_nsec,
+					(ts.tv_sec - pd[0].ts.tv_sec) * 1000000000 + (ts.tv_nsec - pd[0].ts.tv_nsec));
+			/*for (pos = 0; pd[pos].num != 0; pos++) {
 				printf("%" PRIu16 ",%" PRIu8 ",%ld,%ld,%ld\n",
 						cur_count, pos, pd[pos].ts.tv_sec, pd[pos].ts.tv_nsec,
 						(pos!=0) ? (pd[pos].ts.tv_sec - pd[pos-1].ts.tv_sec) * 1000000000 + (pd[pos].ts.tv_nsec - pd[pos-1].ts.tv_nsec) : 0);
 			}
 			printf("%" PRIu16 ",%" PRIu8 ",%ld,%ld,%ld\n", cur_count, pos, ts.tv_sec, ts.tv_nsec,
 					(ts.tv_sec - pd[pos-1].ts.tv_sec) * 1000000000 + (ts.tv_nsec - pd[pos-1].ts.tv_nsec));
+			*/
 
 		}
 		bzero(buf, MSG_LEN);

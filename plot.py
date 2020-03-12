@@ -12,7 +12,7 @@ if len(sys.argv) != 3 :
 
 x = []
 with open(sys.argv[1]) as csvfile:
-    reader = dr(csvfile, fieldnames=['count', 'pos', 'sec', 'nsec', 'delta'])
+    reader = dr(csvfile, fieldnames=['start_sec', 'start_nsec', 'finish_sec', 'finish_nsec', 'delta'])
     for row in reader:
         if row['delta'] != '0':
             x.append(row['delta'])
@@ -26,6 +26,7 @@ perc = np.percentile(x, q=p)
 plt.figure(figsize=(20,10))
 n, bins, patches = plt.hist(x, nb, histtype='bar', facecolor='blue', alpha=0.6)
 plt.locator_params(axis='x', nbins=nb)
+plt.xlim(left=0.0)
 plt.xticks(rotation=90)
 plt.xlabel('Наносекунды')
 plt.ylabel('# сообщений')
