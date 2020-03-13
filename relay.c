@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <time.h>
 #include <inttypes.h>
 #include <unistd.h>
@@ -29,7 +30,7 @@ void print_usage(char *argv[]);
 
 
 int main(int argc, char *argv[]) { 
-	int so, si, so_accepted = 0;
+	int so = 0, si = 0, so_accepted = 0;
 	int retval;
 	int so_insize = 0;
 	char *respath = NULL;
@@ -105,12 +106,65 @@ int main(int argc, char *argv[]) {
 		recv(si, &count, sizeof(count), 0);
 	}
 	// Send count of packages before translation begins
-	if (out_port) send(so_accepted, &count, sizeof(count), 0);
+	// And wait till other sockets become ready
+	if (out_port) {
+		retval = send(so_accepted, &count, sizeof(count), 0);
+		if (retval == -1) {
+			perror("send(..., count, ...)");
+			close(so_accepted);
+			close(so);
+			return -1;
+		}
+
+		uint8_t ready_flag = 0;
+		retval = recv(so_accepted, &ready_flag, sizeof(uint8_t), 0);
+		if (retval == -1) {
+			perror("recv(..., ready_flag, ...)");
+			close(so_accepted);
+			close(so);
+			return retval;
+		} else if (retval == 0) {
+			fprintf(stderr, "socket closed\n");
+			close(so_accepted);
+			close(so);
+			return retval;
+		}
+		if (si) {
+			retval = send(si, &ready_flag, sizeof(uint8_t), 0);
+			if (retval == -1) {
+				perror("send(..., ready_flag, ...)");
+				close(so_accepted);
+				close(so);
+				close(si);
+				return -1;
+			}
+		}
+	}
 	else {
 		resfile = fopen(respath, "w");
 		if (resfile == NULL) {
 			perror("fopen()");
 			if (respath) free(respath);
+			close(si);
+			return -1;
+		}
+
+		retval = send(si, &(uint8_t){1}, sizeof(uint8_t), 0);
+		if (retval == -1) {
+			perror("send(..., ready_flag(1), ...)");
+			close(si);
+			return retval;
+		}
+
+		retval = fcntl(si, F_GETFL);
+		if (retval == -1) {
+			perror("fcntl(si, F_GETFL)");
+			close(si);
+			return -1;
+		}
+		retval = fcntl(si, F_SETFL, retval|O_NONBLOCK);
+		if (retval == -1) {
+			perror("fcnlt(si, F_GETFL)");
 			close(si);
 			return -1;
 		}
@@ -126,12 +180,15 @@ int main(int argc, char *argv[]) {
 				buf = (struct packet_data *)malloc(MSG_LEN);
 				bzero(buf, MSG_LEN);
 			}
-			int retval = recv(si, buf, MSG_LEN, MSG_WAITALL);
-			if (retval == -1) {
-				perror("recv()");
-			} else if (retval == 0) {
-				break;
+			while (1) {
+				retval = recv(si, buf, MSG_LEN, MSG_WAITALL);
+				if (retval == -1 && errno != EWOULDBLOCK) {
+					perror("recv()");
+				} else if (retval >= 0) {
+					break;
+				}
 			}
+			if (retval == 0) break;
 		}
 		if (out_port) {
 			if (!buf) {
@@ -144,7 +201,11 @@ int main(int argc, char *argv[]) {
 				break;
 			}
 
-			send(so_accepted, buf, MSG_LEN, 0);
+			retval = send(so_accepted, buf, MSG_LEN, 0);
+			if (retval == -1) {
+				perror("send(..., buf, ...)");
+				break;
+			}
 
 			// First in chain should wait to create needed frequency
 			if (!in_port) {
@@ -167,10 +228,10 @@ int main(int argc, char *argv[]) {
 	if (buf) free(buf);
 	if (respath) free(respath);
 
-	fclose(resfile);
-	close(si);
-	close(so_accepted);
-	close(so);
+	if (resfile) fclose(resfile);
+	if (si) close(si);
+	if (so_accepted) close(so_accepted);
+	if (so) close(so);
 	return 0;
 }
 
@@ -209,6 +270,12 @@ int create_output_sock(struct sockaddr_in *ao, uint16_t port) {
 		close(ret);
 		return -1;
 	}
+
+//	if (setsockopt(ret, SOL_SOCKET, SO_INCOMING_CPU, &(int){1}, sizeof(int)) == -1) {
+//		perror("setsockopt(... , SO_INCOMING_CPU, ...)");
+//		close(ret);
+//		return -1;
+//	}
 
 	if (bind(ret, (struct sockaddr *)ao, sizeof(struct sockaddr_in)) == -1) {
 		perror("bind()");
@@ -252,6 +319,12 @@ int create_input_sock(struct sockaddr_in *ao, uint16_t port) {
 		close(ret);
 		return -1;
 	}
+
+//	if (setsockopt(ret, SOL_SOCKET, SO_INCOMING_CPU, &(int){1}, sizeof(int)) == -1) {
+//		perror("setsockopt(... , SO_INCOMING_CPU, ...)");
+//		close(ret);
+//		return -1;
+//	}
 
 	if (connect(ret, (struct sockaddr *)ao, sizeof(struct sockaddr_in)) == -1) {
 		perror("connect()");
