@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -8,13 +9,14 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <sched.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 
 #define MAX_SOCKLEN 5
-#define MSG_LEN 1024
+#define MSG_LEN 1024*1024
 
 #ifndef BLOCK_INPUT
 #define BLOCK_INPUT 0
@@ -88,6 +90,15 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "no input or output socket. goodbye.\n");
 		print_usage(argv);
 		return -1;
+	}
+
+	cpu_set_t mask;
+	CPU_ZERO(&mask);
+	CPU_SET(2, &mask);
+	CPU_SET(3, &mask);
+	retval = sched_setaffinity(0, sizeof(mask), &mask);
+	if (retval == -1) {
+		perror("sched_setaffinity()");
 	}
 
 	// Prepare output socket
