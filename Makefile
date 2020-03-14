@@ -1,12 +1,8 @@
-#include gmsl
-
 SRC=$(wildcard *.c)
 OBJ=$(SRC:.c=.o)
-CFLAGS=-O0
+CFLAGS=-O0 -DBLOCK_INPUT=0 -DBLOCK_OUTPUT=0
 
 FREQ=100
-#TIME=30
-#COUNT=$(call multiply, $(FREQ), $(TIME))
 COUNT=3000
 OUTPUT=test.csv
 
@@ -26,6 +22,18 @@ $(OUTPUT): relay
 	./relay -i 11113 -o 11114 &
 	./relay -i 11114 -o 11115 &
 	./relay -i 11115 -r $(OUTPUT)
+#	chrt -f 99 ./relay -c $(COUNT) -f $(FREQ) -o 11111 &
+#	chrt -f 90 ./relay -i 11111 -o 11112 &
+#	chrt -f 90 ./relay -i 11112 -o 11113 &
+#	chrt -f 90 ./relay -i 11113 -o 11114 &
+#	chrt -f 90 ./relay -i 11114 -o 11115 &
+#	chrt -f 90 ./relay -i 11115 -r $(OUTPUT)
+#	nice -n -20 ./relay -c $(COUNT) -f $(FREQ) -o 11111 &
+#	nice -n -20 ./relay -i 11111 -o 11112 &
+#	nice -n -20 ./relay -i 11112 -o 11113 &
+#	nice -n -20 ./relay -i 11113 -o 11114 &
+#	nice -n -20 ./relay -i 11114 -o 11115 &
+#	nice -n -20 ./relay -i 11115 -r $(OUTPUT)
 
 .PHONY:plot
 plot: plot.pdf

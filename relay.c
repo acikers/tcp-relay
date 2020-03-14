@@ -16,6 +16,14 @@
 #define MAX_SOCKLEN 5
 #define MSG_LEN 1024
 
+#ifndef BLOCK_INPUT
+#define BLOCK_INPUT 0
+#endif
+
+#ifndef BLOCK_OUTPUT
+#define BLOCK_OUTPUT 0
+#endif
+
 struct packet_data {
 	uint8_t num;
 	struct timespec ts;
@@ -129,6 +137,20 @@ int main(int argc, char *argv[]) {
 			close(so);
 			return retval;
 		}
+#if BLOCK_OUTPUT == 0
+		retval = fcntl(so, F_GETFL);
+		if (retval == -1) {
+			perror("fcntl(si, F_GETFL)");
+			close(so);
+			return -1;
+		}
+		retval = fcntl(so, F_SETFL, retval|O_NONBLOCK);
+		if (retval == -1) {
+			perror("fcnlt(si, F_GETFL)");
+			close(so);
+			return -1;
+		}
+#endif
 		if (si) {
 			retval = send(si, &ready_flag, sizeof(uint8_t), 0);
 			if (retval == -1) {
@@ -155,7 +177,7 @@ int main(int argc, char *argv[]) {
 			close(si);
 			return retval;
 		}
-
+#if BLOCK_INPUT == 0
 		retval = fcntl(si, F_GETFL);
 		if (retval == -1) {
 			perror("fcntl(si, F_GETFL)");
@@ -168,6 +190,7 @@ int main(int argc, char *argv[]) {
 			close(si);
 			return -1;
 		}
+#endif
 	}
 
 	struct timespec freq_ts;
@@ -182,7 +205,7 @@ int main(int argc, char *argv[]) {
 			}
 			while (1) {
 				retval = recv(si, buf, MSG_LEN, MSG_WAITALL);
-				if (retval == -1 && errno != EWOULDBLOCK) {
+				if (retval == -1 && errno != EWOULDBLOCK && errno != EAGAIN) {
 					perror("recv()");
 				} else if (retval >= 0) {
 					break;
@@ -201,10 +224,14 @@ int main(int argc, char *argv[]) {
 				break;
 			}
 
-			retval = send(so_accepted, buf, MSG_LEN, 0);
-			if (retval == -1) {
-				perror("send(..., buf, ...)");
-				break;
+			while (1) {
+				retval = send(so_accepted, buf, MSG_LEN, 0);
+				if (retval == -1 && errno != EWOULDBLOCK && errno != EAGAIN) {
+					perror("send(..., buf, ...)");
+					break;
+				} else if (retval >= 0) {
+					break;
+				}
 			}
 
 			// First in chain should wait to create needed frequency
