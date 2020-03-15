@@ -16,14 +16,13 @@
 #include <sys/socket.h>
 
 #define MAX_SOCKLEN 5
-#define MSG_LEN 1024*1024
 
-#ifndef BLOCK_INPUT
-#define BLOCK_INPUT 0
+#ifndef MSGLEN
+#define MSGLEN 1024
 #endif
 
-#ifndef BLOCK_OUTPUT
-#define BLOCK_OUTPUT 0
+#ifndef NOBLOCK
+#define NOBLOCK 0
 #endif
 
 struct packet_data {
@@ -92,14 +91,26 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 
-	cpu_set_t mask;
-	CPU_ZERO(&mask);
-	CPU_SET(2, &mask);
-	CPU_SET(3, &mask);
-	retval = sched_setaffinity(0, sizeof(mask), &mask);
-	if (retval == -1) {
-		perror("sched_setaffinity()");
+#ifdef SCHEDCPU
+	{
+		char *cpus = strdup(SCHEDCPU);
+		uint8_t cpuid;
+		cpu_set_t mask;
+		CPU_ZERO(&mask);
+		char *c_cpu = strtok(cpus, ",");
+		if (c_cpu == NULL) { goto endsched; }
+		do {
+			cpuid = (uint8_t)strtoul(c_cpu, NULL, 10);
+			CPU_SET(cpuid, &mask);
+		} while (c_cpu = strtok(NULL, " "));
+		retval = sched_setaffinity(0, sizeof(mask), &mask);
+		if (retval == -1) {
+			perror("sched_setaffinity()");
+		}
+endsched:
+		free(cpus);
 	}
+#endif
 
 	// Prepare output socket
 	struct packet_data *buf = NULL;	// buffer for package
@@ -148,7 +159,7 @@ int main(int argc, char *argv[]) {
 			close(so);
 			return retval;
 		}
-#if BLOCK_OUTPUT == 0
+#if NOBLOCK == 1
 		retval = fcntl(so, F_GETFL);
 		if (retval == -1) {
 			perror("fcntl(si, F_GETFL)");
@@ -188,7 +199,7 @@ int main(int argc, char *argv[]) {
 			close(si);
 			return retval;
 		}
-#if BLOCK_INPUT == 0
+#if NOBLOCK == 1
 		retval = fcntl(si, F_GETFL);
 		if (retval == -1) {
 			perror("fcntl(si, F_GETFL)");
@@ -211,11 +222,11 @@ int main(int argc, char *argv[]) {
 		// Receive package and send new ts
 		if (in_port) {
 			if (!buf) {
-				buf = (struct packet_data *)malloc(MSG_LEN);
-				bzero(buf, MSG_LEN);
+				buf = (struct packet_data *)malloc(MSGLEN);
+				bzero(buf, MSGLEN);
 			}
 			while (1) {
-				retval = recv(si, buf, MSG_LEN, MSG_WAITALL);
+				retval = recv(si, buf, MSGLEN, MSG_WAITALL);
 				if (retval == -1 && errno != EWOULDBLOCK && errno != EAGAIN) {
 					perror("recv()");
 				} else if (retval >= 0) {
@@ -226,8 +237,8 @@ int main(int argc, char *argv[]) {
 		}
 		if (out_port) {
 			if (!buf) {
-				buf = (struct packet_data *) malloc(MSG_LEN);
-				bzero(buf, MSG_LEN);
+				buf = (struct packet_data *) malloc(MSGLEN);
+				bzero(buf, MSGLEN);
 			}
 
 			if (fill_next_packet(buf) == -1) {
@@ -236,7 +247,7 @@ int main(int argc, char *argv[]) {
 			}
 
 			while (1) {
-				retval = send(so_accepted, buf, MSG_LEN, 0);
+				retval = send(so_accepted, buf, MSGLEN, 0);
 				if (retval == -1 && errno != EWOULDBLOCK && errno != EAGAIN) {
 					perror("send(..., buf, ...)");
 					break;
@@ -260,7 +271,7 @@ int main(int argc, char *argv[]) {
 					(ts.tv_sec - pd[0].ts.tv_sec) * 1000000000 + (ts.tv_nsec - pd[0].ts.tv_nsec));
 
 		}
-		bzero(buf, MSG_LEN);
+		bzero(buf, MSGLEN);
 	}
 
 	if (buf) free(buf);
@@ -278,7 +289,9 @@ int fill_next_packet(struct packet_data *packet) {
 	uint8_t num;
 	for (num = 0; packet[num].num != 0; num++) {}
 	packet[num].num = num+1;
-	clock_gettime(CLOCK_MONOTONIC, &(packet[num].ts));
+	if (clock_gettime(CLOCK_MONOTONIC, &(packet[num].ts)) == -1) {
+		return -1;
+	}
 
 	return 0;
 }

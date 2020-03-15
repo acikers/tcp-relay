@@ -1,10 +1,29 @@
 SRC=$(wildcard *.c)
 OBJ=$(SRC:.c=.o)
-CFLAGS=-O0 -DBLOCK_INPUT=0 -DBLOCK_OUTPUT=0
 
-FREQ=100
-COUNT=3000
-OUTPUT=test.csv
+CFLAGS=-O3
+
+FREQ?=100
+COUNT?=3000
+NOBLOCK?=0
+MSGLEN?=1024
+
+DEFINES+= -DNOBLOCK=$(NOBLOCK)
+DEFINES+= -DMSGLEN=$(MSGLEN)
+ifdef SCHEDCPU
+DEFINES+= -DSCHEDCPU=\"$(SCHEDCPU)\"
+endif
+
+%.o:CFLAGS+=$(DEFINES)
+
+
+override OUTPUT=test.csv
+
+#PREFIX_CMD1=chrt -f 99
+#PREFIX_CMD=chrt -f 90
+
+#PREFIX_CMD1=nice -n -20
+#PREFIX_CMD=$(PREFIX_CMD)
 
 relay: $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $^
@@ -16,24 +35,12 @@ clean:
 .PHONY:test
 test: $(OUTPUT)
 $(OUTPUT): relay
-	./relay -c $(COUNT) -f $(FREQ) -o 11111 &
-	./relay -i 11111 -o 11112 &
-	./relay -i 11112 -o 11113 &
-	./relay -i 11113 -o 11114 &
-	./relay -i 11114 -o 11115 &
-	./relay -i 11115 -r $(OUTPUT)
-#	chrt -f 99 ./relay -c $(COUNT) -f $(FREQ) -o 11111 &
-#	chrt -f 90 ./relay -i 11111 -o 11112 &
-#	chrt -f 90 ./relay -i 11112 -o 11113 &
-#	chrt -f 90 ./relay -i 11113 -o 11114 &
-#	chrt -f 90 ./relay -i 11114 -o 11115 &
-#	chrt -f 90 ./relay -i 11115 -r $(OUTPUT)
-#	nice -n -20 ./relay -c $(COUNT) -f $(FREQ) -o 11111 &
-#	nice -n -20 ./relay -i 11111 -o 11112 &
-#	nice -n -20 ./relay -i 11112 -o 11113 &
-#	nice -n -20 ./relay -i 11113 -o 11114 &
-#	nice -n -20 ./relay -i 11114 -o 11115 &
-#	nice -n -20 ./relay -i 11115 -r $(OUTPUT)
+	$(PREFIX_CMD1) ./relay -c $(COUNT) -f $(FREQ) -o 11111 &
+	$(PREFIX_CMD) ./relay -i 11111 -o 11112 &
+	$(PREFIX_CMD) ./relay -i 11112 -o 11113 &
+	$(PREFIX_CMD) ./relay -i 11113 -o 11114 &
+	$(PREFIX_CMD) ./relay -i 11114 -o 11115 &
+	$(PREFIX_CMD) ./relay -i 11115 -r $(OUTPUT)
 
 .PHONY:plot
 plot: plot.pdf

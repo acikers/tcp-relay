@@ -14,11 +14,11 @@ x = []
 with open(sys.argv[1]) as csvfile:
     reader = dr(csvfile, fieldnames=['start_sec', 'start_nsec', 'finish_sec', 'finish_nsec', 'delta'])
     for row in reader:
-        if row['delta'] != '0':
+        if row['delta'] != '0' or row['start_sec'] != 0 and row['start_nsec'] != 0:
             x.append(row['delta'])
 
 nb = 50
-x = np.asarray(x[1:len(x)-1], dtype='int')
+x = np.asarray(x[100:len(x)-1], dtype='int')
 
 p = np.array([50.0, 90.0, 99.0, 100.0])
 perc = np.percentile(x, q=p)
