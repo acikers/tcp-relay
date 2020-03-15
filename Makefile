@@ -6,18 +6,23 @@ CFLAGS=-O3
 FREQ?=100
 COUNT?=3000
 NOBLOCK?=0
+NODELAY?=0
 MSGLEN?=1024
 
 DEFINES+= -DNOBLOCK=$(NOBLOCK)
+DEFINES+= -DNODELAY=$(NODELAY)
 DEFINES+= -DMSGLEN=$(MSGLEN)
 ifdef SCHEDCPU
 DEFINES+= -DSCHEDCPU=\"$(SCHEDCPU)\"
 endif
 
-%.o:CFLAGS+=$(DEFINES)
-
-
 override OUTPUT=test.csv
+
+
+.PHONY:all
+all: plot
+
+%.o:CFLAGS+=$(DEFINES)
 
 #PREFIX_CMD1=chrt -f 99
 #PREFIX_CMD=chrt -f 90
@@ -43,6 +48,6 @@ $(OUTPUT): relay
 	$(PREFIX_CMD) ./relay -i 11115 -r $(OUTPUT)
 
 .PHONY:plot
-plot: plot.pdf
-plot.pdf: $(OUTPUT) plot.py
+plot: plot.png
+plot.png: $(OUTPUT) plot.py
 	./plot.py $(OUTPUT) $@

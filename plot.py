@@ -23,7 +23,7 @@ x = np.asarray(x[100:len(x)-1], dtype='int')
 p = np.array([50.0, 90.0, 99.0, 100.0])
 perc = np.percentile(x, q=p)
 
-plt.figure(figsize=(20,10))
+plt.figure(figsize=(15,8))
 n, bins, patches = plt.hist(x, nb, histtype='bar', facecolor='blue', alpha=0.6)
 plt.locator_params(axis='x', nbins=nb)
 plt.xlim(left=0.0)

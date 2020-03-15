@@ -316,11 +316,13 @@ int create_output_sock(struct sockaddr_in *ao, uint16_t port) {
 		return -1;
 	}
 
+#ifdef NODELAY
 	if (setsockopt(ret, IPPROTO_TCP, TCP_NODELAY, &(int){1}, sizeof(int)) == -1) {
 		perror("setsockopt(... , TCP_NODELAY, ...)");
 		close(ret);
 		return -1;
 	}
+#endif
 
 //	if (setsockopt(ret, SOL_SOCKET, SO_INCOMING_CPU, &(int){1}, sizeof(int)) == -1) {
 //		perror("setsockopt(... , SO_INCOMING_CPU, ...)");
@@ -365,11 +367,13 @@ int create_input_sock(struct sockaddr_in *ao, uint16_t port) {
 		return -1;
 	}
 
+#ifdef NODELAY
 	if (setsockopt(ret, IPPROTO_TCP, TCP_NODELAY, &(int){1}, sizeof(int)) == -1) {
 		perror("setsockopt(... , TCP_NODELAY, ...)");
 		close(ret);
 		return -1;
 	}
+#endif
 
 //	if (setsockopt(ret, SOL_SOCKET, SO_INCOMING_CPU, &(int){1}, sizeof(int)) == -1) {
 //		perror("setsockopt(... , SO_INCOMING_CPU, ...)");
