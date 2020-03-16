@@ -19,6 +19,7 @@ with open(sys.argv[1]) as csvfile:
 
 nb = 50
 x = np.asarray(x[100:len(x)-1], dtype='int')
+#x = np.asarray(x, dtype='int')
 
 p = np.array([50.0, 90.0, 99.0, 100.0])
 perc = np.percentile(x, q=p)
@@ -36,3 +37,4 @@ plt.vlines(perc[2], ymin=0, ymax=max(n), linestyles='dashed', color='orange', la
 plt.vlines(perc[3], ymin=0, ymax=max(n), linestyles='dashed', color='red', label=perc[3])
 plt.legend()
 plt.savefig(sys.argv[2])
+print('perc[\'99\']: ' + str(perc[2]))

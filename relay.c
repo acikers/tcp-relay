@@ -230,25 +230,33 @@ endsched:
 				bzero(buf, MSGLEN);
 			}
 
+
 			FD_ZERO(&fds);
 			FD_SET(si, &fds);
 			for (int cur_len = 0; cur_len < MSGLEN; cur_len += recval>0?recval:0)
 			{
+#if NOBLOCK == 1
 				ps_ret = pselect(si+1, &fds, NULL, NULL, NULL, NULL);
 				if (ps_ret > 0) {
 					if (FD_ISSET(si, &fds)) {
+#endif
 						recval = recv(si, (void*)buf+cur_len, MSGLEN, 0);
 						if (recval == -1 && errno != EWOULDBLOCK && errno != EAGAIN) {
 							perror("recv()");
+							fprintf(stderr, "[%d] cur_len: %d\n", in_port, cur_len);
 							break;
 						} else if (recval == 0) {
-							perror("recv()[closed]:");
+							break;
 						}
+#if NOBLOCK == 1
 					}
 				} else break;
+#endif
 			}
 			if (recval == 0) {
 				fprintf(stderr, "si closed\n");
+				break;
+			} else if (recval == -1) {
 				break;
 			}
 		}
@@ -345,11 +353,13 @@ int create_output_sock(struct sockaddr_in *ao, uint16_t port) {
 	}
 #endif
 
-//	if (setsockopt(ret, SOL_SOCKET, SO_INCOMING_CPU, &(int){1}, sizeof(int)) == -1) {
-//		perror("setsockopt(... , SO_INCOMING_CPU, ...)");
-//		close(ret);
-//		return -1;
-//	}
+// #ifdef SCHEDCPU
+// 	if (setsockopt(ret, SOL_SOCKET, SO_INCOMING_CPU, &(int){1}, sizeof(int)) == -1) {
+// 		perror("setsockopt(... , SO_INCOMING_CPU, ...)");
+// 		close(ret);
+// 		return -1;
+// 	}
+// #endif
 
 	if (bind(ret, (struct sockaddr *)ao, sizeof(struct sockaddr_in)) == -1) {
 		perror("bind()");
@@ -396,11 +406,13 @@ int create_input_sock(struct sockaddr_in *ao, uint16_t port) {
 	}
 #endif
 
-//	if (setsockopt(ret, SOL_SOCKET, SO_INCOMING_CPU, &(int){1}, sizeof(int)) == -1) {
-//		perror("setsockopt(... , SO_INCOMING_CPU, ...)");
-//		close(ret);
-//		return -1;
-//	}
+#ifdef SCHEDCPU
+	if (setsockopt(ret, SOL_SOCKET, SO_INCOMING_CPU, &(int){1}, sizeof(int)) == -1) {
+		perror("setsockopt(... , SO_INCOMING_CPU, ...)");
+		close(ret);
+		return -1;
+	}
+#endif
 
 	if (connect(ret, (struct sockaddr *)ao, sizeof(struct sockaddr_in)) == -1) {
 		perror("connect()");
