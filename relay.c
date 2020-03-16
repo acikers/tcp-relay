@@ -33,9 +33,14 @@ struct packet_data {
 
 int create_output_sock(struct sockaddr_in *, uint16_t);
 int create_input_sock(struct sockaddr_in *, uint16_t);
+int prepare_member(int, uint8_t *, const uint32_t *);
+int prepare_last_member(int);
+
+int send_packages(FILE *, int, int, uint32_t, uint32_t, uint16_t, uint16_t);
 
 int fill_next_packet(struct packet_data *);
 
+int set_cpu_affinity(void);
 void print_usage(char *argv[]);
 
 
@@ -93,28 +98,14 @@ int main(int argc, char *argv[]) {
 	}
 
 #ifdef SCHEDCPU
+	retval = set_cpu_affinity()
+	if (retval == -1)
 	{
-		char *cpus = strdup(SCHEDCPU);
-		uint8_t cpuid;
-		cpu_set_t mask;
-		CPU_ZERO(&mask);
-		char *c_cpu = strtok(cpus, ",");
-		if (c_cpu == NULL) { goto endsched; }
-		do {
-			cpuid = (uint8_t)strtoul(c_cpu, NULL, 10);
-			CPU_SET(cpuid, &mask);
-		} while (c_cpu = strtok(NULL, " "));
-		retval = sched_setaffinity(0, sizeof(mask), &mask);
-		if (retval == -1) {
-			perror("sched_setaffinity()");
-		}
-endsched:
-		free(cpus);
+		return retval;
 	}
 #endif
 
 	// Prepare output socket
-	struct packet_data *buf = NULL;	// buffer for package
 	if (out_port) {
 		so = create_output_sock(&tcp_addr_out, out_port);
 		if (so == -1) {
@@ -139,41 +130,15 @@ endsched:
 	// Send count of packages before translation begins
 	// And wait till other sockets become ready
 	if (out_port) {
-		retval = send(so_accepted, &count, sizeof(count), 0);
-		if (retval == -1) {
-			perror("send(..., count, ...)");
-			close(so_accepted);
-			close(so);
-			return -1;
-		}
-
 		uint8_t ready_flag = 0;
-		retval = recv(so_accepted, &ready_flag, sizeof(uint8_t), 0);
+		retval = prepare_member(so_accepted, &ready_flag, &count);
 		if (retval == -1) {
-			perror("recv(..., ready_flag, ...)");
+			perror("prepare_member()");
 			close(so_accepted);
-			close(so);
-			return retval;
-		} else if (retval == 0) {
-			fprintf(stderr, "socket closed\n");
-			close(so_accepted);
-			close(so);
-			return retval;
-		}
-#if NOBLOCK == 1
-		retval = fcntl(so_accepted, F_GETFL);
-		if (retval == -1) {
-			perror("fcntl(so_accepted, F_GETFL)");
 			close(so);
 			return -1;
 		}
-		retval = fcntl(so_accepted, F_SETFL, retval|O_NONBLOCK);
-		if (retval == -1) {
-			perror("fcnlt(so_accepted, F_GETFL)");
-			close(so);
-			return -1;
-		}
-#endif
+		// Send ready_flag to previous member
 		if (si) {
 			retval = send(si, &ready_flag, sizeof(uint8_t), 0);
 			if (retval == -1) {
@@ -194,34 +159,32 @@ endsched:
 			return -1;
 		}
 
-		retval = send(si, &(uint8_t){1}, sizeof(uint8_t), 0);
-		if (retval == -1) {
-			perror("send(..., ready_flag(1), ...)");
-			close(si);
-			return retval;
-		}
-#if NOBLOCK == 1
-		retval = fcntl(si, F_GETFL);
-		if (retval == -1) {
-			perror("fcntl(si, F_GETFL)");
-			close(si);
-			return -1;
-		}
-		retval = fcntl(si, F_SETFL, retval|O_NONBLOCK);
-		if (retval == -1) {
-			perror("fcnlt(si, F_GETFL)");
-			close(si);
-			return -1;
-		}
-#endif
+		retval = prepare_last_member(si);
+	}
+	
+	retval = send_packages(resfile, si, so_accepted, frequency, count, in_port, out_port);
+	if (retval == -1)
+	{
+		perror("send_packages()");
 	}
 
+	if (respath) free(respath);
+
+	if (resfile) fclose(resfile);
+	if (si) close(si);
+	if (so_accepted) close(so_accepted);
+	if (so) close(so);
+	return 0;
+}
+
+int send_packages(FILE* resfile, int in_fd, int out_fd, uint32_t freq, uint32_t count, uint16_t in_port, uint16_t out_port) {
+	struct packet_data *buf = NULL;	// buffer for package
 	struct timespec freq_ts;
-	freq_ts.tv_nsec = 1000000000.0/frequency;
+	freq_ts.tv_nsec = 1000000000.0/freq;
 	freq_ts.tv_sec = 0;
-	int ps_ret = 0;
-	int recval = 0;
+	int ps_ret = 0, recval = 0, retval =0;
 	fd_set fds;
+	
 	for (uint32_t cur_count = 0; cur_count < count; cur_count++) {
 		// Receive package and send new ts
 		if (in_port) {
@@ -232,15 +195,15 @@ endsched:
 
 
 			FD_ZERO(&fds);
-			FD_SET(si, &fds);
+			FD_SET(in_fd, &fds);
 			for (int cur_len = 0; cur_len < MSGLEN; cur_len += recval>0?recval:0)
 			{
 #if NOBLOCK == 1
-				ps_ret = pselect(si+1, &fds, NULL, NULL, NULL, NULL);
+				ps_ret = pselect(in_fd+1, &fds, NULL, NULL, NULL, NULL);
 				if (ps_ret > 0) {
-					if (FD_ISSET(si, &fds)) {
+					if (FD_ISSET(in_fd, &fds)) {
 #endif
-						recval = recv(si, (void*)buf+cur_len, MSGLEN, 0);
+						recval = recv(in_fd, (void*)buf+cur_len, MSGLEN, 0);
 						if (recval == -1 && errno != EWOULDBLOCK && errno != EAGAIN) {
 							perror("recv()");
 							fprintf(stderr, "[%d] cur_len: %d\n", in_port, cur_len);
@@ -254,7 +217,7 @@ endsched:
 #endif
 			}
 			if (recval == 0) {
-				fprintf(stderr, "si closed\n");
+				fprintf(stderr, "in_fd closed\n");
 				break;
 			} else if (recval == -1) {
 				break;
@@ -272,11 +235,11 @@ endsched:
 			}
 
 			FD_ZERO(&fds);
-			FD_SET(so_accepted, &fds);
-			ps_ret = pselect(so_accepted+1, NULL, &fds, NULL, NULL, NULL);
+			FD_SET(out_fd, &fds);
+			ps_ret = pselect(out_fd+1, NULL, &fds, NULL, NULL, NULL);
 			if (ps_ret > 0) {
-				if (FD_ISSET(so_accepted, &fds)) {
-					retval = send(so_accepted, buf, MSGLEN, 0);
+				if (FD_ISSET(out_fd, &fds)) {
+					retval = send(out_fd, buf, MSGLEN, 0);
 					if (retval == -1 && errno != EWOULDBLOCK && errno != EAGAIN) {
 						fprintf(stderr, "send(..., buf, ...) out_port:%" PRIu16" \n", out_port);
 						perror("send(..., buf, ...)");
@@ -291,9 +254,8 @@ endsched:
 			}
 		} else {
 			// Last in chain has only input
-			// And should write 
-			struct packet_data *pd = buf;
-			uint8_t pos = 0;
+			// And should write to result file
+			struct packet_data *pd = buf; // some sugar
 			struct timespec ts = {0};
 			clock_gettime(CLOCK_MONOTONIC, &ts);
 			fprintf(resfile, "%ld,%ld,%ld,%ld,%ld\n", pd[0].ts.tv_sec, pd[0].ts.tv_nsec, ts.tv_sec, ts.tv_nsec,
@@ -304,15 +266,31 @@ endsched:
 	}
 
 	if (buf) free(buf);
-	if (respath) free(respath);
-
-	if (resfile) fclose(resfile);
-	if (si) close(si);
-	if (so_accepted) close(so_accepted);
-	if (so) close(so);
 	return 0;
 }
 
+int set_cpu_affinity(void) {
+	int retval = 0;
+#ifdef SCHEDCPU
+	char *cpus = strdup(SCHEDCPU);
+	uint8_t cpuid;
+	cpu_set_t mask;
+	CPU_ZERO(&mask);
+	char *c_cpu = strtok(cpus, ",");
+	if (c_cpu == NULL) { goto endsched; }
+	do {
+		cpuid = (uint8_t)strtoul(c_cpu, NULL, 10);
+		CPU_SET(cpuid, &mask);
+	} while (c_cpu = strtok(NULL, " "));
+	retval = sched_setaffinity(0, sizeof(mask), &mask);
+	if (retval == -1) {
+		perror("sched_setaffinity()");
+	}
+endsched:
+	free(cpus);
+#endif
+	return retval;
+}
 
 int fill_next_packet(struct packet_data *packet) {
 	uint8_t num;
@@ -322,6 +300,21 @@ int fill_next_packet(struct packet_data *packet) {
 		return -1;
 	}
 
+	return 0;
+}
+
+inline int set_sock_opts(int sockfd) {
+	if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) == -1) {
+		perror("setsockopt(... , SO_REUSEADDR, ...)");
+		return -1;
+	}
+
+#ifdef NODELAY
+	if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &(int){1}, sizeof(int)) == -1) {
+		perror("setsockopt(... , TCP_NODELAY, ...)");
+		return -1;
+	}
+#endif
 	return 0;
 }
 
@@ -339,19 +332,10 @@ int create_output_sock(struct sockaddr_in *ao, uint16_t port) {
 		return ret;
 	}
 
-	if (setsockopt(ret, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) == -1) {
-		perror("setsockopt(... , SO_REUSEADDR, ...)");
+	if (set_sock_opts(ret) == -1) {
 		close(ret);
 		return -1;
 	}
-
-#ifdef NODELAY
-	if (setsockopt(ret, IPPROTO_TCP, TCP_NODELAY, &(int){1}, sizeof(int)) == -1) {
-		perror("setsockopt(... , TCP_NODELAY, ...)");
-		close(ret);
-		return -1;
-	}
-#endif
 
 // #ifdef SCHEDCPU
 // 	if (setsockopt(ret, SOL_SOCKET, SO_INCOMING_CPU, &(int){1}, sizeof(int)) == -1) {
@@ -392,27 +376,19 @@ int create_input_sock(struct sockaddr_in *ao, uint16_t port) {
 		return ret;
 	}
 
-	if (setsockopt(ret, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) == -1) {
-		perror("setsockopt(... , SO_REUSEADDR, ...)");
+	if (set_sock_opts(ret) == -1) {
 		close(ret);
 		return -1;
 	}
 
-#ifdef NODELAY
-	if (setsockopt(ret, IPPROTO_TCP, TCP_NODELAY, &(int){1}, sizeof(int)) == -1) {
-		perror("setsockopt(... , TCP_NODELAY, ...)");
-		close(ret);
-		return -1;
-	}
-#endif
 
-#ifdef SCHEDCPU
-	if (setsockopt(ret, SOL_SOCKET, SO_INCOMING_CPU, &(int){1}, sizeof(int)) == -1) {
-		perror("setsockopt(... , SO_INCOMING_CPU, ...)");
-		close(ret);
-		return -1;
-	}
-#endif
+// #ifdef SCHEDCPU
+// 	if (setsockopt(ret, SOL_SOCKET, SO_INCOMING_CPU, &(int){1}, sizeof(int)) == -1) {
+// 		perror("setsockopt(... , SO_INCOMING_CPU, ...)");
+// 		close(ret);
+// 		return -1;
+// 	}
+// #endif
 
 	if (connect(ret, (struct sockaddr *)ao, sizeof(struct sockaddr_in)) == -1) {
 		perror("connect()");
@@ -422,6 +398,56 @@ int create_input_sock(struct sockaddr_in *ao, uint16_t port) {
 	}
 
 	return ret;
+}
+
+inline int set_nonblock(int fd) {
+	int retval = 0;
+#if NOBLOCK == 1
+	retval = fcntl(so_fd, F_GETFL);
+	if (retval == -1) {
+		perror("fcntl(so_accepted, F_GETFL)");
+		return -1;
+	}
+	retval = fcntl(so_fd, F_SETFL, retval|O_NONBLOCK);
+	if (retval == -1) {
+		perror("fcnlt(so_accepted, F_GETFL)");
+		return -1;
+	}
+#endif
+	return retval;
+}
+
+int prepare_member(int so_fd, uint8_t *ready_flag, const uint32_t *count) {
+	int retval = send(so_fd, &count, sizeof(count), 0);
+	if (retval == -1) {
+		perror("send(..., count, ...)");
+		return -1;
+	}
+
+	retval = recv(so_fd, ready_flag, sizeof(uint8_t), 0);
+	if (retval == -1) {
+		perror("recv(..., ready_flag, ...)");
+		return retval;
+	} else if (retval == 0) {
+		fprintf(stderr, "socket closed\n");
+		return retval;
+	}
+	if (set_nonblock(so_fd) == -1) {
+		return -1;
+	}
+	return 0;
+}
+
+int prepare_last_member(int so_fd) {
+	int retval = send(so_fd, &(uint8_t){1}, sizeof(uint8_t), 0);
+	if (retval == -1) {
+		perror("send(..., ready_flag(1), ...)");
+		return -1;
+	}
+	if (set_nonblock(so_fd) == -1) {
+		return -1;
+	}
+	return 0;
 }
 
 void print_usage(char *argv[]) {
