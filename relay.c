@@ -13,6 +13,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 
 #define MAX_SOCKLEN 5
@@ -160,15 +161,15 @@ endsched:
 			return retval;
 		}
 #if NOBLOCK == 1
-		retval = fcntl(so, F_GETFL);
+		retval = fcntl(so_accepted, F_GETFL);
 		if (retval == -1) {
-			perror("fcntl(si, F_GETFL)");
+			perror("fcntl(so_accepted, F_GETFL)");
 			close(so);
 			return -1;
 		}
-		retval = fcntl(so, F_SETFL, retval|O_NONBLOCK);
+		retval = fcntl(so_accepted, F_SETFL, retval|O_NONBLOCK);
 		if (retval == -1) {
-			perror("fcnlt(si, F_GETFL)");
+			perror("fcnlt(so_accepted, F_GETFL)");
 			close(so);
 			return -1;
 		}
@@ -218,6 +219,9 @@ endsched:
 	struct timespec freq_ts;
 	freq_ts.tv_nsec = 1000000000.0/frequency;
 	freq_ts.tv_sec = 0;
+	int ps_ret = 0;
+	int recval = 0;
+	fd_set fds;
 	for (uint32_t cur_count = 0; cur_count < count; cur_count++) {
 		// Receive package and send new ts
 		if (in_port) {
@@ -225,15 +229,28 @@ endsched:
 				buf = (struct packet_data *)malloc(MSGLEN);
 				bzero(buf, MSGLEN);
 			}
-			while (1) {
-				retval = recv(si, buf, MSGLEN, MSG_WAITALL);
-				if (retval == -1 && errno != EWOULDBLOCK && errno != EAGAIN) {
-					perror("recv()");
-				} else if (retval >= 0) {
-					break;
-				}
+
+			FD_ZERO(&fds);
+			FD_SET(si, &fds);
+			for (int cur_len = 0; cur_len < MSGLEN; cur_len += recval>0?recval:0)
+			{
+				ps_ret = pselect(si+1, &fds, NULL, NULL, NULL, NULL);
+				if (ps_ret > 0) {
+					if (FD_ISSET(si, &fds)) {
+						recval = recv(si, (void*)buf+cur_len, MSGLEN, 0);
+						if (recval == -1 && errno != EWOULDBLOCK && errno != EAGAIN) {
+							perror("recv()");
+							break;
+						} else if (recval == 0) {
+							perror("recv()[closed]:");
+						}
+					}
+				} else break;
 			}
-			if (retval == 0) break;
+			if (recval == 0) {
+				fprintf(stderr, "si closed\n");
+				break;
+			}
 		}
 		if (out_port) {
 			if (!buf) {
@@ -246,16 +263,20 @@ endsched:
 				break;
 			}
 
-			while (1) {
-				retval = send(so_accepted, buf, MSGLEN, 0);
-				if (retval == -1 && errno != EWOULDBLOCK && errno != EAGAIN) {
-					perror("send(..., buf, ...)");
-					break;
-				} else if (retval >= 0) {
-					break;
+			FD_ZERO(&fds);
+			FD_SET(so_accepted, &fds);
+			ps_ret = pselect(so_accepted+1, NULL, &fds, NULL, NULL, NULL);
+			if (ps_ret > 0) {
+				if (FD_ISSET(so_accepted, &fds)) {
+					retval = send(so_accepted, buf, MSGLEN, 0);
+					if (retval == -1 && errno != EWOULDBLOCK && errno != EAGAIN) {
+						fprintf(stderr, "send(..., buf, ...) out_port:%" PRIu16" \n", out_port);
+						perror("send(..., buf, ...)");
+						break;
+					}
+// 					fprintf(stderr, "send[%" PRIu16 "]\n", out_port);
 				}
 			}
-
 			// First in chain should wait to create needed frequency
 			if (!in_port) {
 				nanosleep(&freq_ts, NULL);
