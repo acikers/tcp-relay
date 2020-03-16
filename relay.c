@@ -41,7 +41,13 @@ int send_packages(FILE *, int, int, uint32_t, uint32_t, uint16_t, uint16_t);
 int fill_next_packet(struct packet_data *);
 
 int set_cpu_affinity(void);
-void print_usage(char *argv[]);
+
+// Just because usage should be first
+void print_usage(char *argv[]) {
+	fprintf(stderr, "Usage: %s [-c count] [-f freq] [-i input_port] [-o output_port] [-r resfile.csv]\n", argv[0]);
+	fprintf(stderr, "count and freq works only for copy of program which only has output socket, and doesn't have input socket\n");
+	fprintf(stderr, "resfile - only valid for last app in chain\n");
+}
 
 
 int main(int argc, char *argv[]) { 
@@ -448,10 +454,4 @@ int prepare_last_member(int so_fd) {
 		return -1;
 	}
 	return 0;
-}
-
-void print_usage(char *argv[]) {
-	fprintf(stderr, "Usage: %s [-c count] [-f freq] [-i input_port] [-o output_port] [-r resfile.csv]\n", argv[0]);
-	fprintf(stderr, "count and freq works only for copy of program which only has output socket, and doesn't have input socket\n");
-	fprintf(stderr, "resfile - only valid for last app in chain\n");
 }
